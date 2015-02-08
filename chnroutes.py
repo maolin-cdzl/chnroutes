@@ -7,6 +7,10 @@ import argparse
 import math
 import textwrap
 
+gateway='192.168.0.1'
+dev='eth0'
+localaddr='192.168.0.88'
+tablename='user'
 
 def generate_ovpn(metric):
     results = fetch_ip_data()  
@@ -20,29 +24,20 @@ def generate_ovpn(metric):
 
 
 def generate_linux(metric):
+    global gateway
+    global dev
+    global localaddr
+    global tablename
+
     results = fetch_ip_data()
     upscript_header=textwrap.dedent("""\
     #!/bin/bash
     export PATH="/bin:/sbin:/usr/sbin:/usr/bin"
-    
-    OLDGW=`ip route show | grep '^default' | sed -e 's/default via \\([^ ]*\\).*/\\1/'`
-    
-    if [ $OLDGW == '' ]; then
-        exit 0
-    fi
-    
-    if [ ! -e /tmp/vpn_oldgw ]; then
-        echo $OLDGW > /tmp/vpn_oldgw
-    fi
-    
     """)
     
     downscript_header=textwrap.dedent("""\
     #!/bin/bash
     export PATH="/bin:/sbin:/usr/sbin:/usr/bin"
-    
-    OLDGW=`cat /tmp/vpn_oldgw`
-    
     """)
     
     upfile=open('ip-pre-up','w')
@@ -53,12 +48,11 @@ def generate_linux(metric):
     downfile.write(downscript_header)
     downfile.write('\n')
     
-    for ip,mask,_ in results:
-        upfile.write('route add -net %s netmask %s gw $OLDGW\n'%(ip,mask))
-        downfile.write('route del -net %s netmask %s\n'%(ip,mask))
-
-    downfile.write('rm /tmp/vpn_oldgw\n')
-
+    upfile.write('ip route add %s/24 via %s dev %s proto static src %s table %s\n' % (localaddr,gateway,dev,localaddr,tablename))
+    for ip,mask,mask2 in results:
+        upfile.write('ip route add %s/%d via %s dev %s proto static src %s table %s\n' % (ip,mask2,gateway,dev,localaddr,tablename))
+    
+    downfile.write('ip route flush table user')
 
     print "For pptp only, please copy the file ip-pre-up to the folder/etc/ppp," \
           "and copy the file ip-down to the folder /etc/ppp/ip-down.d."
